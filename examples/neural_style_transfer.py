@@ -2,15 +2,18 @@
 
 Run the script with:
 ```
-python neural_style_transfer.py path_to_your_base_image.jpg path_to_your_reference.jpg prefix_for_results
+python neural_style_transfer.py path_to_your_base_image.jpg \
+    path_to_your_reference.jpg prefix_for_results
 ```
 e.g.:
 ```
-python neural_style_transfer.py img/tuebingen.jpg img/starry_night.jpg results/my_result
+python neural_style_transfer.py img/tuebingen.jpg \
+    img/starry_night.jpg results/my_result
 ```
 Optional parameters:
 ```
---iter, To specify the number of iterations the style transfer takes place (Default is 10)
+--iter, To specify the number of iterations \
+    the style transfer takes place (Default is 10)
 --content_weight, The weight given to the content loss (Default is 0.025)
 --style_weight, The weight given to the style loss (Default is 1.0)
 --tv_weight, The weight given to the total variation loss (Default is 1.0)
@@ -50,14 +53,13 @@ keeping the generated image close enough to the original one.
 '''
 
 from __future__ import print_function
-from keras.preprocessing.image import load_img, img_to_array
-from scipy.misc import imsave
+from keras.preprocessing.image import load_img, save_img, img_to_array
 import numpy as np
 from scipy.optimize import fmin_l_bfgs_b
 import time
 import argparse
 
-from keras.applications import vgg16
+from keras.applications import vgg19
 from keras import backend as K
 
 parser = argparse.ArgumentParser(description='Neural style transfer with Keras.')
@@ -99,7 +101,7 @@ def preprocess_image(image_path):
     img = load_img(image_path, target_size=(img_nrows, img_ncols))
     img = img_to_array(img)
     img = np.expand_dims(img, axis=0)
-    img = vgg16.preprocess_input(img)
+    img = vgg19.preprocess_input(img)
     return img
 
 # util function to convert a tensor into a valid image
@@ -135,9 +137,9 @@ input_tensor = K.concatenate([base_image,
                               style_reference_image,
                               combination_image], axis=0)
 
-# build the VGG16 network with our 3 images as input
+# build the VGG19 network with our 3 images as input
 # the model will be loaded with pre-trained ImageNet weights
-model = vgg16.VGG16(input_tensor=input_tensor,
+model = vgg19.VGG19(input_tensor=input_tensor,
                     weights='imagenet', include_top=False)
 print('Model loaded.')
 
@@ -173,7 +175,7 @@ def style_loss(style, combination):
     C = gram_matrix(combination)
     channels = 3
     size = img_nrows * img_ncols
-    return K.sum(K.square(S - C)) / (4. * (channels ** 2) * (size ** 2))
+    return K.sum(K.square(S - C)) / (4.0 * (channels ** 2) * (size ** 2))
 
 # an auxiliary loss function
 # designed to maintain the "content" of the
@@ -190,16 +192,20 @@ def content_loss(base, combination):
 def total_variation_loss(x):
     assert K.ndim(x) == 4
     if K.image_data_format() == 'channels_first':
-        a = K.square(x[:, :, :img_nrows - 1, :img_ncols - 1] - x[:, :, 1:, :img_ncols - 1])
-        b = K.square(x[:, :, :img_nrows - 1, :img_ncols - 1] - x[:, :, :img_nrows - 1, 1:])
+        a = K.square(
+            x[:, :, :img_nrows - 1, :img_ncols - 1] - x[:, :, 1:, :img_ncols - 1])
+        b = K.square(
+            x[:, :, :img_nrows - 1, :img_ncols - 1] - x[:, :, :img_nrows - 1, 1:])
     else:
-        a = K.square(x[:, :img_nrows - 1, :img_ncols - 1, :] - x[:, 1:, :img_ncols - 1, :])
-        b = K.square(x[:, :img_nrows - 1, :img_ncols - 1, :] - x[:, :img_nrows - 1, 1:, :])
+        a = K.square(
+            x[:, :img_nrows - 1, :img_ncols - 1, :] - x[:, 1:, :img_ncols - 1, :])
+        b = K.square(
+            x[:, :img_nrows - 1, :img_ncols - 1, :] - x[:, :img_nrows - 1, 1:, :])
     return K.sum(K.pow(a + b, 1.25))
 
 # combine these loss functions into a single scalar
-loss = K.variable(0.)
-layer_features = outputs_dict['block4_conv2']
+loss = K.variable(0.0)
+layer_features = outputs_dict['block5_conv2']
 base_image_features = layer_features[0, :, :, :]
 combination_features = layer_features[2, :, :, :]
 loss += content_weight * content_loss(base_image_features,
@@ -273,10 +279,7 @@ evaluator = Evaluator()
 
 # run scipy-based optimization (L-BFGS) over the pixels of the generated image
 # so as to minimize the neural style loss
-if K.image_data_format() == 'channels_first':
-    x = np.random.uniform(0, 255, (1, 3, img_nrows, img_ncols)) - 128.
-else:
-    x = np.random.uniform(0, 255, (1, img_nrows, img_ncols, 3)) - 128.
+x = preprocess_image(base_image_path)
 
 for i in range(iterations):
     print('Start of iteration', i)
@@ -287,7 +290,7 @@ for i in range(iterations):
     # save current generated image
     img = deprocess_image(x.copy())
     fname = result_prefix + '_at_iteration_%d.png' % i
-    imsave(fname, img)
+    save_img(fname, img)
     end_time = time.time()
     print('Image saved as', fname)
     print('Iteration %d completed in %ds' % (i, end_time - start_time))

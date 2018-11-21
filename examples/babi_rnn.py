@@ -1,4 +1,5 @@
 '''Trains two recurrent neural networks based upon a story and a question.
+
 The resulting merged vector is then queried to answer a range of bAbI tasks.
 
 The results are comparable to those for an LSTM model provided in Weston et al.:
@@ -31,7 +32,7 @@ QA20 - Agent's Motivations   | 91               | 90.7
 For the resources related to the bAbI project, refer to:
 https://research.facebook.com/researchers/1543934539189348
 
-Notes:
+# Notes
 
 - With default word, sentence, and query vector sizes, the GRU model achieves:
   - 100% test accuracy on QA1 in 20 epochs (2 seconds per epoch on CPU)
@@ -97,7 +98,6 @@ def parse_stories(lines, only_supporting=False):
         if '\t' in line:
             q, a, supporting = line.split('\t')
             q = tokenize(q)
-            substory = None
             if only_supporting:
                 # Only select the related substory
                 supporting = map(int, supporting.split())
@@ -122,7 +122,8 @@ def get_stories(f, only_supporting=False, max_length=None):
     '''
     data = parse_stories(f.readlines(), only_supporting=only_supporting)
     flatten = lambda data: reduce(lambda x, y: x + y, data)
-    data = [(flatten(story), q, answer) for story, q, answer in data if not max_length or len(flatten(story)) < max_length]
+    data = [(flatten(story), q, answer) for story, q, answer in data
+            if not max_length or len(flatten(story)) < max_length]
     return data
 
 
@@ -139,7 +140,8 @@ def vectorize_stories(data, word_idx, story_maxlen, query_maxlen):
         xs.append(x)
         xqs.append(xq)
         ys.append(y)
-    return pad_sequences(xs, maxlen=story_maxlen), pad_sequences(xqs, maxlen=query_maxlen), np.array(ys)
+    return (pad_sequences(xs, maxlen=story_maxlen),
+            pad_sequences(xqs, maxlen=query_maxlen), np.array(ys))
 
 RNN = recurrent.LSTM
 EMBED_HIDDEN_SIZE = 50
@@ -153,13 +155,16 @@ print('RNN / Embed / Sent / Query = {}, {}, {}, {}'.format(RNN,
                                                            QUERY_HIDDEN_SIZE))
 
 try:
-    path = get_file('babi-tasks-v1-2.tar.gz', origin='https://s3.amazonaws.com/text-datasets/babi_tasks_1-20_v1-2.tar.gz')
+    path = get_file('babi-tasks-v1-2.tar.gz',
+                    origin='https://s3.amazonaws.com/text-datasets/'
+                           'babi_tasks_1-20_v1-2.tar.gz')
 except:
     print('Error downloading dataset, please download it manually:\n'
-          '$ wget http://www.thespermwhale.com/jaseweston/babi/tasks_1-20_v1-2.tar.gz\n'
+          '$ wget http://www.thespermwhale.com/jaseweston/babi/tasks_1-20_v1-2'
+          '.tar.gz\n'
           '$ mv tasks_1-20_v1-2.tar.gz ~/.keras/datasets/babi-tasks-v1-2.tar.gz')
     raise
-tar = tarfile.open(path)
+
 # Default QA1 with 1000 samples
 # challenge = 'tasks_1-20_v1-2/en/qa1_single-supporting-fact_{}.txt'
 # QA1 with 10,000 samples
@@ -168,8 +173,9 @@ tar = tarfile.open(path)
 challenge = 'tasks_1-20_v1-2/en/qa2_two-supporting-facts_{}.txt'
 # QA2 with 10,000 samples
 # challenge = 'tasks_1-20_v1-2/en-10k/qa2_two-supporting-facts_{}.txt'
-train = get_stories(tar.extractfile(challenge.format('train')))
-test = get_stories(tar.extractfile(challenge.format('test')))
+with tarfile.open(path) as tar:
+    train = get_stories(tar.extractfile(challenge.format('train')))
+    test = get_stories(tar.extractfile(challenge.format('test')))
 
 vocab = set()
 for story, q, answer in train + test:

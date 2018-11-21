@@ -1,6 +1,7 @@
 '''Trains a memory network on the bAbI dataset.
 
 References:
+
 - Jason Weston, Antoine Bordes, Sumit Chopra, Tomas Mikolov, Alexander M. Rush,
   "Towards AI-Complete Question Answering: A Set of Prerequisite Toy Tasks",
   http://arxiv.org/abs/1502.05698
@@ -16,7 +17,8 @@ from __future__ import print_function
 
 from keras.models import Sequential, Model
 from keras.layers.embeddings import Embedding
-from keras.layers import Input, Activation, Dense, Permute, Dropout, add, dot, concatenate
+from keras.layers import Input, Activation, Dense, Permute, Dropout
+from keras.layers import add, dot, concatenate
 from keras.layers import LSTM
 from keras.utils.data_utils import get_file
 from keras.preprocessing.sequence import pad_sequences
@@ -52,7 +54,6 @@ def parse_stories(lines, only_supporting=False):
         if '\t' in line:
             q, a, supporting = line.split('\t')
             q = tokenize(q)
-            substory = None
             if only_supporting:
                 # Only select the related substory
                 supporting = map(int, supporting.split())
@@ -78,47 +79,48 @@ def get_stories(f, only_supporting=False, max_length=None):
     '''
     data = parse_stories(f.readlines(), only_supporting=only_supporting)
     flatten = lambda data: reduce(lambda x, y: x + y, data)
-    data = [(flatten(story), q, answer) for story, q, answer in data if not max_length or len(flatten(story)) < max_length]
+    data = [(flatten(story), q, answer) for story, q, answer in data
+            if not max_length or len(flatten(story)) < max_length]
     return data
 
 
-def vectorize_stories(data, word_idx, story_maxlen, query_maxlen):
-    X = []
-    Xq = []
-    Y = []
+def vectorize_stories(data):
+    inputs, queries, answers = [], [], []
     for story, query, answer in data:
-        x = [word_idx[w] for w in story]
-        xq = [word_idx[w] for w in query]
-        # let's not forget that index 0 is reserved
-        y = np.zeros(len(word_idx) + 1)
-        y[word_idx[answer]] = 1
-        X.append(x)
-        Xq.append(xq)
-        Y.append(y)
-    return (pad_sequences(X, maxlen=story_maxlen),
-            pad_sequences(Xq, maxlen=query_maxlen), np.array(Y))
+        inputs.append([word_idx[w] for w in story])
+        queries.append([word_idx[w] for w in query])
+        answers.append(word_idx[answer])
+    return (pad_sequences(inputs, maxlen=story_maxlen),
+            pad_sequences(queries, maxlen=query_maxlen),
+            np.array(answers))
 
 try:
-    path = get_file('babi-tasks-v1-2.tar.gz', origin='https://s3.amazonaws.com/text-datasets/babi_tasks_1-20_v1-2.tar.gz')
+    path = get_file('babi-tasks-v1-2.tar.gz',
+                    origin='https://s3.amazonaws.com/text-datasets/'
+                           'babi_tasks_1-20_v1-2.tar.gz')
 except:
     print('Error downloading dataset, please download it manually:\n'
-          '$ wget http://www.thespermwhale.com/jaseweston/babi/tasks_1-20_v1-2.tar.gz\n'
+          '$ wget http://www.thespermwhale.com/jaseweston/babi/tasks_1-20_v1-2'
+          '.tar.gz\n'
           '$ mv tasks_1-20_v1-2.tar.gz ~/.keras/datasets/babi-tasks-v1-2.tar.gz')
     raise
-tar = tarfile.open(path)
+
 
 challenges = {
     # QA1 with 10,000 samples
-    'single_supporting_fact_10k': 'tasks_1-20_v1-2/en-10k/qa1_single-supporting-fact_{}.txt',
+    'single_supporting_fact_10k': 'tasks_1-20_v1-2/en-10k/qa1_'
+                                  'single-supporting-fact_{}.txt',
     # QA2 with 10,000 samples
-    'two_supporting_facts_10k': 'tasks_1-20_v1-2/en-10k/qa2_two-supporting-facts_{}.txt',
+    'two_supporting_facts_10k': 'tasks_1-20_v1-2/en-10k/qa2_'
+                                'two-supporting-facts_{}.txt',
 }
 challenge_type = 'single_supporting_fact_10k'
 challenge = challenges[challenge_type]
 
 print('Extracting stories for the challenge:', challenge_type)
-train_stories = get_stories(tar.extractfile(challenge.format('train')))
-test_stories = get_stories(tar.extractfile(challenge.format('test')))
+with tarfile.open(path) as tar:
+    train_stories = get_stories(tar.extractfile(challenge.format('train')))
+    test_stories = get_stories(tar.extractfile(challenge.format('test')))
 
 vocab = set()
 for story, q, answer in train_stories + test_stories:
@@ -143,14 +145,8 @@ print('-')
 print('Vectorizing the word sequences...')
 
 word_idx = dict((c, i + 1) for i, c in enumerate(vocab))
-inputs_train, queries_train, answers_train = vectorize_stories(train_stories,
-                                                               word_idx,
-                                                               story_maxlen,
-                                                               query_maxlen)
-inputs_test, queries_test, answers_test = vectorize_stories(test_stories,
-                                                            word_idx,
-                                                            story_maxlen,
-                                                            query_maxlen)
+inputs_train, queries_train, answers_train = vectorize_stories(train_stories)
+inputs_test, queries_test, answers_test = vectorize_stories(test_stories)
 
 print('-')
 print('inputs: integer tensor of shape (samples, max_length)')
@@ -225,7 +221,7 @@ answer = Activation('softmax')(answer)
 
 # build the final model
 model = Model([input_sequence, question], answer)
-model.compile(optimizer='rmsprop', loss='categorical_crossentropy',
+model.compile(optimizer='rmsprop', loss='sparse_categorical_crossentropy',
               metrics=['accuracy'])
 
 # train

@@ -1,4 +1,9 @@
+"""Built-in weight initializers.
+"""
 from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import numpy as np
 import six
 from . import backend as K
@@ -18,6 +23,10 @@ class Initializer(object):
 
     @classmethod
     def from_config(cls, config):
+        if 'dtype' in config:
+            # Initializers saved from `tf.keras`
+            # may contain an unused `dtype` argument.
+            config.pop('dtype')
         return cls(**config)
 
 
@@ -199,7 +208,8 @@ class VarianceScaling(Initializer):
         else:
             scale /= max(1., float(fan_in + fan_out) / 2)
         if self.distribution == 'normal':
-            stddev = np.sqrt(scale)
+            # 0.879... = scipy.stats.truncnorm.std(a=-2, b=2, loc=0., scale=1.)
+            stddev = np.sqrt(scale) / .87962566103423978
             return K.truncated_normal(shape, 0., stddev,
                                       dtype=dtype, seed=self.seed)
         else:
@@ -224,7 +234,8 @@ class Orthogonal(Initializer):
         seed: A Python integer. Used to seed the random generator.
 
     # References
-        Saxe et al., http://arxiv.org/abs/1312.6120
+        - [Exact solutions to the nonlinear dynamics of learning in deep
+           linear neural networks](http://arxiv.org/abs/1312.6120)
     """
 
     def __init__(self, gain=1., seed=None):
@@ -256,7 +267,9 @@ class Orthogonal(Initializer):
 class Identity(Initializer):
     """Initializer that generates the identity matrix.
 
-    Only use for square 2D matrices.
+    Only use for 2D matrices.
+    If the long side of the matrix is a multiple of the short side,
+    multiple identity matrices are concatenated along the long side.
 
     # Arguments
         gain: Multiplicative factor to apply to the identity matrix.
@@ -266,11 +279,21 @@ class Identity(Initializer):
         self.gain = gain
 
     def __call__(self, shape, dtype=None):
-        if len(shape) != 2 or shape[0] != shape[1]:
-            raise ValueError('Identity matrix initializer can only be used '
-                             'for 2D square matrices.')
-        else:
+        if len(shape) != 2:
+            raise ValueError(
+                'Identity matrix initializer can only be used for 2D matrices.')
+
+        if max(shape) % min(shape) != 0:
+            raise ValueError('Long side should be multiple of short side.')
+
+        if shape[0] == shape[1]:
             return self.gain * np.identity(shape[0])
+        elif shape[0] > shape[1]:
+            return self.gain * np.concatenate(
+                [np.identity(shape[1])] * (shape[0] // shape[1]), axis=0)
+        else:
+            return self.gain * np.concatenate(
+                [np.identity(shape[0])] * (shape[1] // shape[0]), axis=1)
 
     def get_config(self):
         return {
@@ -292,8 +315,7 @@ def lecun_uniform(seed=None):
         An initializer.
 
     # References
-        LeCun 98, Efficient Backprop,
-        http://yann.lecun.com/exdb/publis/pdf/lecun-98b.pdf
+        - [Efficient BackProp](http://yann.lecun.com/exdb/publis/pdf/lecun-98b.pdf)
     """
     return VarianceScaling(scale=1.,
                            mode='fan_in',
@@ -316,8 +338,8 @@ def glorot_normal(seed=None):
         An initializer.
 
     # References
-        Glorot & Bengio, AISTATS 2010
-        http://jmlr.org/proceedings/papers/v9/glorot10a/glorot10a.pdf
+        - [Understanding the difficulty of training deep feedforward neural
+           networks](http://jmlr.org/proceedings/papers/v9/glorot10a/glorot10a.pdf)
     """
     return VarianceScaling(scale=1.,
                            mode='fan_avg',
@@ -340,8 +362,8 @@ def glorot_uniform(seed=None):
         An initializer.
 
     # References
-        Glorot & Bengio, AISTATS 2010
-        http://jmlr.org/proceedings/papers/v9/glorot10a/glorot10a.pdf
+        - [Understanding the difficulty of training deep feedforward neural
+           networks](http://jmlr.org/proceedings/papers/v9/glorot10a/glorot10a.pdf)
     """
     return VarianceScaling(scale=1.,
                            mode='fan_avg',
@@ -363,9 +385,33 @@ def he_normal(seed=None):
         An initializer.
 
     # References
-        He et al., http://arxiv.org/abs/1502.01852
+        - [Delving Deep into Rectifiers: Surpassing Human-Level Performance on
+           ImageNet Classification](http://arxiv.org/abs/1502.01852)
     """
     return VarianceScaling(scale=2.,
+                           mode='fan_in',
+                           distribution='normal',
+                           seed=seed)
+
+
+def lecun_normal(seed=None):
+    """LeCun normal initializer.
+
+    It draws samples from a truncated normal distribution centered on 0
+    with `stddev = sqrt(1 / fan_in)`
+    where `fan_in` is the number of input units in the weight tensor.
+
+    # Arguments
+        seed: A Python integer. Used to seed the random generator.
+
+    # Returns
+        An initializer.
+
+    # References
+        - [Self-Normalizing Neural Networks](https://arxiv.org/abs/1706.02515)
+        - [Efficient Backprop](http://yann.lecun.com/exdb/publis/pdf/lecun-98b.pdf)
+    """
+    return VarianceScaling(scale=1.,
                            mode='fan_in',
                            distribution='normal',
                            seed=seed)
@@ -385,7 +431,8 @@ def he_uniform(seed=None):
         An initializer.
 
     # References
-        He et al., http://arxiv.org/abs/1502.01852
+        - [Delving Deep into Rectifiers: Surpassing Human-Level Performance on
+           ImageNet Classification](http://arxiv.org/abs/1502.01852)
     """
     return VarianceScaling(scale=2.,
                            mode='fan_in',
@@ -435,7 +482,7 @@ def _compute_fans(shape, data_format='channels_last'):
             fan_in = shape[1] * receptive_field_size
             fan_out = shape[0] * receptive_field_size
         elif data_format == 'channels_last':
-            receptive_field_size = np.prod(shape[:2])
+            receptive_field_size = np.prod(shape[:-2])
             fan_in = shape[-2] * receptive_field_size
             fan_out = shape[-1] * receptive_field_size
         else:
@@ -467,5 +514,5 @@ def get(identifier):
     elif callable(identifier):
         return identifier
     else:
-        raise ValueError('Could not interpret initializer identifier:',
-                         identifier)
+        raise ValueError('Could not interpret initializer identifier: ' +
+                         str(identifier))
